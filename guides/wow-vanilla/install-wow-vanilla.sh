@@ -614,21 +614,24 @@ RUN git clone --depth 1 https://github.com/WoWruRU/classicdb_ruRU.git /src/class
 # own sql/ tree (the modules/Bots clone is just C++ source)
 RUN git clone --depth 1 https://github.com/cmangos/playerbots.git /src/playerbots-fresh
 
-# Patch CMaNGOS source to add ruRU locale support (LOCALE_ruRU = 7)
-# The classicdb_ruRU .patch targets old file paths; we apply equivalent
-# changes inline on the current source layout (Locales.h/cpp, not Common.h)
+# Patch CMaNGOS source to add ruRU locale support
+# The classicdb_ruRU SQL uses loc8 columns, so ruRU MUST be index 8.
+# esMX (index 7) must also be added to preserve correct column mapping.
 RUN cd /src/mangos-classic && \
-    sed -i 's/\(LOCALE_esES = 6,\)/\1\n    LOCALE_ruRU = 7,/' \
+    sed -i 's/\(LOCALE_esES = 6,\)/\1\n    LOCALE_esMX = 7,\n    LOCALE_ruRU = 8,/' \
         src/game/Globals/Locales.h && \
-    sed -i '/#define MAX_LOCALE/s/[0-9][0-9]*/8/' \
+    sed -i '/#define MAX_LOCALE/s/[0-9][0-9]*/9/' \
         src/game/Globals/Locales.h && \
-    sed -i '/^    "esES",/s/\("esES",\)/\1\n    "ruRU",/' \
+    sed -i '/^    "esES",/s/\("esES",\)/\1\n    "esMX",\n    "ruRU",/' \
         src/game/Globals/Locales.cpp && \
-    sed -i '/{ "esES",   LOCALE_esES },/a\    { "ruRU",   LOCALE_ruRU },' \
+    sed -i '/{ "esES",   LOCALE_esES },/a\    { "esMX",   LOCALE_esMX },' \
+        src/game/Globals/Locales.cpp && \
+    sed -i '/{ "esMX",   LOCALE_esMX },/a\    { "ruRU",   LOCALE_ruRU },' \
         src/game/Globals/Locales.cpp && \
     echo "--- Validating ruRU locale patch ---" && \
-    grep -q 'LOCALE_ruRU = 7' src/game/Globals/Locales.h && \
-    grep -q '#define MAX_LOCALE 8' src/game/Globals/Locales.h && \
+    grep -q 'LOCALE_esMX = 7' src/game/Globals/Locales.h && \
+    grep -q 'LOCALE_ruRU = 8' src/game/Globals/Locales.h && \
+    grep -q '#define MAX_LOCALE 9' src/game/Globals/Locales.h && \
     grep -q '"ruRU"'              src/game/Globals/Locales.cpp && \
     grep -q 'LOCALE_ruRU'        src/game/Globals/Locales.cpp && \
     echo "ruRU locale patch applied and verified OK"
@@ -1078,7 +1081,7 @@ EOF
             "$SERVER_DIR/etc/mangosd.conf"
         sed -i "s|^DataDir\s*=.*|DataDir = \"/opt/mangos/data\"|" \
             "$SERVER_DIR/etc/mangosd.conf"
-        sed -i "s|^DBC.Locale.*|DBC.Locale = 7|" \
+        sed -i "s|^DBC.Locale.*|DBC.Locale = 8|" \
             "$SERVER_DIR/etc/mangosd.conf"
 
         # Verification — make sure every patch actually landed
@@ -1088,7 +1091,7 @@ EOF
                        "CharacterDatabaseInfo.*${DB_PASSWORD}" \
                        "LogsDatabaseInfo.*${DB_PASSWORD}" \
                        "DataDir.*/opt/mangos/data" \
-                       "DBC.Locale.*7"; do
+                       "DBC.Locale.*8"; do
             if grep -q "^${pattern%%.*}" "$SERVER_DIR/etc/mangosd.conf" 2>/dev/null && \
                grep -qE "$pattern" "$SERVER_DIR/etc/mangosd.conf" 2>/dev/null; then
                 patches_ok=$((patches_ok + 1))
