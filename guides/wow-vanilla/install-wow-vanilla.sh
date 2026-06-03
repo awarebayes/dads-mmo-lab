@@ -643,6 +643,8 @@ RUN cd /src/mangos-classic && \
         src/game/Chat/Level2.cpp && \
     sed -i 's/MAX_LOCALE/MAX_DBC_LOCALE/g' \
         src/game/Chat/Level3.cpp && \
+    sed -i 's/MAX_LOCALE/MAX_DBC_LOCALE/g' \
+        src/game/Server/DBCStores.cpp && \
     echo "--- Validating ruRU locale patch ---" && \
     grep -q 'LOCALE_esMX = 7'      src/game/Globals/Locales.h && \
     grep -q 'LOCALE_ruRU = 8'      src/game/Globals/Locales.h && \
