@@ -617,10 +617,15 @@ RUN git clone --depth 1 https://github.com/cmangos/playerbots.git /src/playerbot
 # Patch CMaNGOS source to add ruRU locale support
 # The classicdb_ruRU SQL uses loc8 columns, so ruRU MUST be index 8.
 # esMX (index 7) must also be added to preserve correct column mapping.
+# MAX_DBC_LOCALE = 8 keeps DBC array access bounded (1.12.1 DBC files
+# have exactly 8 locale slots, indices 0–7). MAX_LOCALE = 9 covers all
+# locales including ruRU for database lookups (loc1–loc8 columns).
 RUN cd /src/mangos-classic && \
     sed -i 's/\(LOCALE_esES = 6,\)/\1\n    LOCALE_esMX = 7,\n    LOCALE_ruRU = 8,/' \
         src/game/Globals/Locales.h && \
     sed -i '/#define MAX_LOCALE/s/[0-9][0-9]*/9/' \
+        src/game/Globals/Locales.h && \
+    sed -i '/#define MAX_LOCALE 9/a\#define MAX_DBC_LOCALE 8' \
         src/game/Globals/Locales.h && \
     sed -i '/^    "esES",/s/\("esES",\)/\1\n    "esMX",\n    "ruRU",/' \
         src/game/Globals/Locales.cpp && \
@@ -628,12 +633,24 @@ RUN cd /src/mangos-classic && \
         src/game/Globals/Locales.cpp && \
     sed -i '/{ "esMX",   LOCALE_esMX },/a\    { "ruRU",   LOCALE_ruRU },' \
         src/game/Globals/Locales.cpp && \
+    sed -i 's/MAX_LOCALE/MAX_DBC_LOCALE/g' \
+        src/game/World/World.cpp && \
+    sed -i '/LOCALE_koKR/!s/MAX_LOCALE/MAX_DBC_LOCALE/g' \
+        src/game/Chat/Chat.cpp && \
+    sed -i 's/MAX_LOCALE/MAX_DBC_LOCALE/g' \
+        src/game/Chat/Level1.cpp && \
+    sed -i 's/MAX_LOCALE/MAX_DBC_LOCALE/g' \
+        src/game/Chat/Level2.cpp && \
+    sed -i 's/MAX_LOCALE/MAX_DBC_LOCALE/g' \
+        src/game/Chat/Level3.cpp && \
     echo "--- Validating ruRU locale patch ---" && \
-    grep -q 'LOCALE_esMX = 7' src/game/Globals/Locales.h && \
-    grep -q 'LOCALE_ruRU = 8' src/game/Globals/Locales.h && \
-    grep -q '#define MAX_LOCALE 9' src/game/Globals/Locales.h && \
-    grep -q '"ruRU"'              src/game/Globals/Locales.cpp && \
-    grep -q 'LOCALE_ruRU'        src/game/Globals/Locales.cpp && \
+    grep -q 'LOCALE_esMX = 7'      src/game/Globals/Locales.h && \
+    grep -q 'LOCALE_ruRU = 8'      src/game/Globals/Locales.h && \
+    grep -q '#define MAX_LOCALE 9'  src/game/Globals/Locales.h && \
+    grep -q '#define MAX_DBC_LOCALE 8' src/game/Globals/Locales.h && \
+    grep -q '"ruRU"'                src/game/Globals/Locales.cpp && \
+    grep -q 'LOCALE_ruRU'          src/game/Globals/Locales.cpp && \
+    grep -q 'MAX_DBC_LOCALE'       src/game/World/World.cpp && \
     echo "ruRU locale patch applied and verified OK"
 
 # Configure with BUILD_PLAYERBOTS=1
@@ -1081,8 +1098,9 @@ EOF
             "$SERVER_DIR/etc/mangosd.conf"
         sed -i "s|^DataDir\s*=.*|DataDir = \"/opt/mangos/data\"|" \
             "$SERVER_DIR/etc/mangosd.conf"
-        sed -i "s|^DBC.Locale.*|DBC.Locale = 8|" \
-            "$SERVER_DIR/etc/mangosd.conf"
+
+        # Note: DBC.Locale left at default (255 = auto-detect). Russian text
+        # comes from locales_* DB tables, not DBC files. DBC locale is enUS.
 
         # Verification — make sure every patch actually landed
         local patches_ok=0
@@ -1090,18 +1108,17 @@ EOF
                        "WorldDatabaseInfo.*${DB_PASSWORD}" \
                        "CharacterDatabaseInfo.*${DB_PASSWORD}" \
                        "LogsDatabaseInfo.*${DB_PASSWORD}" \
-                       "DataDir.*/opt/mangos/data" \
-                       "DBC.Locale.*8"; do
+                       "DataDir.*/opt/mangos/data"; do
             if grep -q "^${pattern%%.*}" "$SERVER_DIR/etc/mangosd.conf" 2>/dev/null && \
                grep -qE "$pattern" "$SERVER_DIR/etc/mangosd.conf" 2>/dev/null; then
                 patches_ok=$((patches_ok + 1))
             fi
         done
 
-        if [ $patches_ok -eq 6 ]; then
-            print_success "mangosd.conf patched (all 6/6 verified)"
+        if [ $patches_ok -eq 5 ]; then
+            print_success "mangosd.conf patched (all 5/5 verified)"
         else
-            print_warning "mangosd.conf patching incomplete — only $patches_ok/6 verified."
+            print_warning "mangosd.conf patching incomplete — only $patches_ok/5 verified."
             print_warning "Server will likely fail to connect to the database."
             print_info "Check $SERVER_DIR/etc/mangosd.conf before starting."
         fi
