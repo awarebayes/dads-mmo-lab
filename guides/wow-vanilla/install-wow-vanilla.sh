@@ -607,9 +607,25 @@ RUN git clone --depth 1 https://github.com/cmangos/playerbots.git \
 # Clone classic-db (world content database)
 RUN git clone --depth 1 https://github.com/cmangos/classic-db.git /src/classic-db
 
+# Clone classicdb_ruRU (Russian locale translations)
+RUN git clone --depth 1 https://github.com/WoWruRU/classicdb_ruRU.git /src/classicdb_ruRU
+
 # Clone playerbots repo SEPARATELY at /src/playerbots-fresh to get its
 # own sql/ tree (the modules/Bots clone is just C++ source)
 RUN git clone --depth 1 https://github.com/cmangos/playerbots.git /src/playerbots-fresh
+
+# Patch CMaNGOS source to add ruRU locale support (LOCALE_ruRU = 7)
+# The classicdb_ruRU .patch targets old file paths; we apply equivalent
+# changes inline on the current source layout (Locales.h/cpp, not Common.h)
+RUN cd /src/mangos-classic && \
+    sed -i 's/\(LOCALE_esES = 6,\)/\1\n    LOCALE_ruRU = 7,/' \
+        src/game/Globals/Locales.h && \
+    sed -i 's/#define MAX_LOCALE  7/#define MAX_LOCALE 8/' \
+        src/game/Globals/Locales.h && \
+    sed -i 's/\("esES",\)/\1\n    "ruRU",/' \
+        src/game/Globals/Locales.cpp && \
+    sed -i 's/{ "esES",   LOCALE_esES },/& \n    { "ruRU",   LOCALE_ruRU },/' \
+        src/game/Globals/Locales.cpp
 
 # Configure with BUILD_PLAYERBOTS=1
 WORKDIR /src/mangos-classic
@@ -635,6 +651,10 @@ RUN mkdir -p /opt/mangos/sql && \
     cp -r /src/mangos-classic/sql/* /opt/mangos/sql/ && \
     mkdir -p /opt/mangos/classic-db && \
     cp -r /src/classic-db/* /opt/mangos/classic-db/ && \
+    mkdir -p /opt/mangos/classicdb-ruRU && \
+    cp -r /src/classicdb_ruRU/Full_DB/* /opt/mangos/classicdb-ruRU/ && \
+    mkdir -p /opt/mangos/classicdb-ruRU/Updates && \
+    cp -r /src/classicdb_ruRU/Updates/* /opt/mangos/classicdb-ruRU/Updates/ && \
     mkdir -p /opt/mangos/playerbots-sql && \
     cp -r /src/playerbots-fresh/sql/* /opt/mangos/playerbots-sql/
 
@@ -1052,6 +1072,8 @@ EOF
             "$SERVER_DIR/etc/mangosd.conf"
         sed -i "s|^DataDir\s*=.*|DataDir = \"/opt/mangos/data\"|" \
             "$SERVER_DIR/etc/mangosd.conf"
+        sed -i "s|^DBC.Locale.*|DBC.Locale = 7|" \
+            "$SERVER_DIR/etc/mangosd.conf"
 
         # Verification — make sure every patch actually landed
         local patches_ok=0
@@ -1059,17 +1081,18 @@ EOF
                        "WorldDatabaseInfo.*${DB_PASSWORD}" \
                        "CharacterDatabaseInfo.*${DB_PASSWORD}" \
                        "LogsDatabaseInfo.*${DB_PASSWORD}" \
-                       "DataDir.*/opt/mangos/data"; do
+                       "DataDir.*/opt/mangos/data" \
+                       "DBC.Locale.*7"; do
             if grep -q "^${pattern%%.*}" "$SERVER_DIR/etc/mangosd.conf" 2>/dev/null && \
                grep -qE "$pattern" "$SERVER_DIR/etc/mangosd.conf" 2>/dev/null; then
                 patches_ok=$((patches_ok + 1))
             fi
         done
 
-        if [ $patches_ok -eq 5 ]; then
-            print_success "mangosd.conf patched (all 5/5 verified)"
+        if [ $patches_ok -eq 6 ]; then
+            print_success "mangosd.conf patched (all 6/6 verified)"
         else
-            print_warning "mangosd.conf patching incomplete — only $patches_ok/5 verified."
+            print_warning "mangosd.conf patching incomplete — only $patches_ok/6 verified."
             print_warning "Server will likely fail to connect to the database."
             print_info "Check $SERVER_DIR/etc/mangosd.conf before starting."
         fi
@@ -1348,6 +1371,24 @@ EOF
     print_success "World content imported (~17K items, 10K creatures, 4K quests)"
 
     # ────────────────────────────────────────────────────────────────
+    # Phase 3.5: Import classicdb_ruRU Full Russian Locale Database
+    # Translates NPC names, quest text, items, etc. into Russian.
+    # Both enUS and ruRU locales coexist in the mangos DB.
+    # ────────────────────────────────────────────────────────────────
+    print_info "Importing Russian locale data (NPCs, quests, items)..."
+    if $DOCKER_CMD run --rm --network "$compose_net" \
+        -e MYSQL_PWD="${DB_PASSWORD}" \
+        "$SERVER_IMAGE" sh -c "
+            for sql in /opt/mangos/classicdb-ruRU/*.sql; do
+                [ -f \"\$sql\" ] && mariadb -h db -u root mangos < \"\$sql\" 2>/dev/null
+            done
+        " 2>&1 | tail -3; then
+        print_success "Russian locale data imported"
+    else
+        print_warning "Russian locale import had errors (may be OK)"
+    fi
+
+    # ────────────────────────────────────────────────────────────────
     # Phase 4: Apply classic-db content Updates (300+ small files)
     # Most will succeed; a few may fail because they assume a different
     # baseline — that's OK, they're idempotent-safe.
@@ -1363,6 +1404,25 @@ EOF
             echo "Done"
         ' 2>&1 | tail -2
     print_success "Content updates applied"
+
+    # ────────────────────────────────────────────────────────────────
+    # Phase 4.5: Apply classicdb_ruRU content Updates (30+ files)
+    # Idempotent-safe locale translations that layer on top of enUS.
+    # ────────────────────────────────────────────────────────────────
+    print_info "Applying Russian locale content updates (30+ files)..."
+    if $DOCKER_CMD run --rm --network "$compose_net" \
+        -e MYSQL_PWD="${DB_PASSWORD}" \
+        "$SERVER_IMAGE" sh -c '
+            cd /opt/mangos/classicdb-ruRU/Updates 2>/dev/null || exit 0
+            for sql in $(ls -v *.sql 2>/dev/null); do
+                mariadb -h db -u root mangos < "$sql" 2>/dev/null
+            done
+            echo "Done"
+        ' 2>&1 | tail -2; then
+        print_success "Russian locale updates applied"
+    else
+        print_warning "Russian locale updates had errors (may be OK)"
+    fi
 
     # ────────────────────────────────────────────────────────────────
     # Phase 5: Apply ACID scripts (creature AI behaviors)
@@ -1799,11 +1859,14 @@ show_completion() {
     local realmlist_written=0
 
     # Some repacks put realmlist at top level; standard installs put it
-    # inside Data/enUS/. We check both and write to wherever it lives,
-    # or create it at top level if neither exists.
-    if [ -f "$CLIENT_DIR/Data/enUS/realmlist.wtf" ]; then
-        realmlist_path="$CLIENT_DIR/Data/enUS/realmlist.wtf"
-    fi
+    # inside Data/<locale>/. We check all supported locales and write to
+    # wherever it lives, or create it at top level if neither exists.
+    for _locale in enUS enGB deDE frFR esES esMX ruRU; do
+        if [ -f "$CLIENT_DIR/Data/$_locale/realmlist.wtf" ]; then
+            realmlist_path="$CLIENT_DIR/Data/$_locale/realmlist.wtf"
+            break
+        fi
+    done
 
     if [ -e "$realmlist_path" ] || [ -d "$(dirname "$realmlist_path")" ]; then
         # Unlock first in case it was already chmod 444
