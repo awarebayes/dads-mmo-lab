@@ -620,12 +620,18 @@ RUN git clone --depth 1 https://github.com/cmangos/playerbots.git /src/playerbot
 RUN cd /src/mangos-classic && \
     sed -i 's/\(LOCALE_esES = 6,\)/\1\n    LOCALE_ruRU = 7,/' \
         src/game/Globals/Locales.h && \
-    sed -i 's/#define MAX_LOCALE 7/#define MAX_LOCALE 8/' \
+    sed -i '/#define MAX_LOCALE/s/[0-9][0-9]*/8/' \
         src/game/Globals/Locales.h && \
-    sed -i 's/\("esES",\)/\1\n    "ruRU",/' \
+    sed -i '/^    "esES",/s/\("esES",\)/\1\n    "ruRU",/' \
         src/game/Globals/Locales.cpp && \
-    sed -i 's/{ "esES",   LOCALE_esES },/& \n    { "ruRU",   LOCALE_ruRU },/' \
-        src/game/Globals/Locales.cpp
+    sed -i '/{ "esES",   LOCALE_esES },/a\    { "ruRU",   LOCALE_ruRU },' \
+        src/game/Globals/Locales.cpp && \
+    echo "--- Validating ruRU locale patch ---" && \
+    grep -q 'LOCALE_ruRU = 7' src/game/Globals/Locales.h && \
+    grep -q '#define MAX_LOCALE 8' src/game/Globals/Locales.h && \
+    grep -q '"ruRU"'              src/game/Globals/Locales.cpp && \
+    grep -q 'LOCALE_ruRU'        src/game/Globals/Locales.cpp && \
+    echo "ruRU locale patch applied and verified OK"
 
 # Configure with BUILD_PLAYERBOTS=1
 WORKDIR /src/mangos-classic
