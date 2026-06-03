@@ -620,7 +620,7 @@ RUN git clone --depth 1 https://github.com/cmangos/playerbots.git /src/playerbot
 RUN cd /src/mangos-classic && \
     sed -i 's/\(LOCALE_esES = 6,\)/\1\n    LOCALE_ruRU = 7,/' \
         src/game/Globals/Locales.h && \
-    sed -i 's/#define MAX_LOCALE  7/#define MAX_LOCALE 8/' \
+    sed -i 's/#define MAX_LOCALE 7/#define MAX_LOCALE 8/' \
         src/game/Globals/Locales.h && \
     sed -i 's/\("esES",\)/\1\n    "ruRU",/' \
         src/game/Globals/Locales.cpp && \
